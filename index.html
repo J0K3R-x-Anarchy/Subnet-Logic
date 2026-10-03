@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual IPv4 Subnet Calculator & Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+                        sans: ['Inter', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; overflow-x: hidden; font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 4px; }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Bit grid: 8 columns on phones, 16 on tablets, 32 on desktops */
+        .bit-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+        @media (min-width: 640px) { .bit-grid { grid-template-columns: repeat(16, minmax(0, 1fr)); } }
+        @media (min-width: 1024px) { .bit-grid { grid-template-columns: repeat(32, minmax(0, 1fr)); gap: 3px; } }
+
+        .bit-box {
+            min-height: 46px;
+            transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+        }
+        .bit-box:hover { transform: translateY(-2px); }
+
+        .class-card { transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+        .class-card.active { transform: translateY(-3px); }
+
+        @media print {
+            body { background: white !important; color: black !important; }
+            .no-print { display: none !important; }
+            .glass-panel { background: white !important; border: 1px solid #ccc !important; box-shadow: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-3 bg-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl border border-indigo-400/30 pointer-events-none">
+        <i class="fa-solid fa-circle-check text-lg"></i>
+        <span id="toast-message" class="text-sm font-medium">Copied!</span>
+    </div>
+
+    <!-- Header -->
+    <header class="border-b border-slate-800/80 sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md w-full">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+                    <i class="fa-solid fa-network-wired text-white text-lg"></i>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="font-bold text-lg leading-tight text-white truncate">Subnet Visualizer</h1>
+                    <p class="text-xs text-slate-400 hidden sm:block">Interactive IPv4 Planning & Learning Suite</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 no-print">
+                <button id="fullscreen-toggle" class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Toggle Fullscreen">
+                    <i class="fa-solid fa-expand text-sm" id="fullscreen-icon"></i>
+                </button>
+                <button id="export-json-btn" class="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-2 border border-slate-700 transition">
+                    <i class="fa-solid fa-download"></i>
+                    <span class="hidden sm:inline">Export JSON</span>
+                </button>
+                <button onclick="window.print()" class="px-3 py-2 text-xs font-medium rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-2 shadow-md shadow-indigo-600/20 transition">
+                    <i class="fa-solid fa-print"></i>
+                    <span class="hidden sm:inline">Print / PDF</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 w-full flex-grow">
+
+        <!-- SECTION 1: INPUTS -->
+        <section class="glass-panel rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <h2 class="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-sliders"></i> Network Parameters Input
+            </h2>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div class="space-y-2">
+                    <label for="ip-input" class="flex justify-between text-xs font-medium text-slate-300">
+                        <span>IPv4 Address</span>
+                        <span id="ip-validation-msg" class="text-emerald-400">Valid IP</span>
+                    </label>
+                    <input type="text" id="ip-input" value="192.168.1.1" placeholder="e.g. 10.0.0.1"
+                        class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+                </div>
+
+                <div class="space-y-2">
+                    <label for="cidr-select" class="block text-xs font-medium text-slate-300">Subnet Mask / Prefix</label>
+                    <select id="cidr-select" class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"></select>
+                </div>
+
+                <div class="space-y-2">
+                    <label for="hosts-input" class="flex justify-between text-xs font-medium text-slate-300">
+                        <span>Min Required Hosts</span>
+                        <span class="text-slate-500">Auto CIDR</span>
+                    </label>
+                    <input type="number" id="hosts-input" min="1" placeholder="e.g. 50"
+                        class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+                </div>
+
+                <div class="space-y-2">
+                    <label for="subnets-needed-input" class="flex justify-between text-xs font-medium text-slate-300">
+                        <span>Target Subnets</span>
+                        <span class="text-slate-500">Fits Class</span>
+                    </label>
+                    <input type="number" id="subnets-needed-input" min="1" placeholder="e.g. 16"
+                        class="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-3.5 py-2.5 font-mono text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+                </div>
+            </div>
+
+            <div class="mt-6 pt-5 border-t border-slate-800/80 flex flex-col md:flex-row items-center gap-4">
+                <span class="text-xs font-medium text-slate-400 whitespace-nowrap">CIDR Prefix Slider:</span>
+                <input type="range" id="cidr-slider" min="0" max="32" value="24" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+                <span id="slider-cidr-label" class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-2.5 py-1 rounded-lg whitespace-nowrap">/24</span>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-2 text-xs items-center">
+                <span class="text-slate-500 py-1">Quick Presets:</span>
+                <button class="preset-chip px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" data-ip="10.0.0.1" data-cidr="8">Class A Private (/8)</button>
+                <button class="preset-chip px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" data-ip="172.16.0.1" data-cidr="12">Class B Private (/12)</button>
+                <button class="preset-chip px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" data-ip="192.168.1.1" data-cidr="24">Home LAN (/24)</button>
+                <button class="preset-chip px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" data-ip="10.254.0.1" data-cidr="30">Point-to-Point (/30)</button>
+                <button class="preset-chip px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" data-ip="8.8.8.8" data-cidr="32">Single Host (/32)</button>
+            </div>
+        </section>
+
+        <!-- SECTION 2: LIVE IP CLASS FINDER -->
+        <section class="glass-panel rounded-2xl p-6 space-y-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-indigo-400"></i> Live IP Class Finder
+                </h3>
+                <span id="class-live-status" class="text-xs font-mono text-slate-400"></span>
+            </div>
+            <p id="class-explain" class="text-sm text-slate-300"></p>
+            <div id="class-strip" class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3"></div>
+        </section>
+
+        <!-- SECTION 3: KEY METRICS -->
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="glass-panel rounded-2xl p-5 border-l-4 border-emerald-500">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Network Address</span>
+                    <i class="fa-solid fa-network-wired text-emerald-400"></i>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                    <span id="res-network-ip" class="text-base sm:text-lg font-bold font-mono text-white truncate">192.168.1.0</span>
+                    <button class="copy-btn text-slate-500 hover:text-emerald-400 transition shrink-0" data-copy-target="res-network-ip" title="Copy">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+                <p id="res-network-cidr" class="text-xs text-emerald-400/80 font-mono mt-1">/24 Subnet ID</p>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-5 border-l-4 border-amber-500">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Broadcast Address</span>
+                    <i class="fa-solid fa-tower-broadcast text-amber-400"></i>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                    <span id="res-broadcast-ip" class="text-base sm:text-lg font-bold font-mono text-white truncate">192.168.1.255</span>
+                    <button class="copy-btn text-slate-500 hover:text-amber-400 transition shrink-0" data-copy-target="res-broadcast-ip" title="Copy">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-amber-400/80 font-mono mt-1">All host bits set to 1</p>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-5 border-l-4 border-indigo-500">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Usable Host Range</span>
+                    <i class="fa-solid fa-arrows-left-right text-indigo-400"></i>
+                </div>
+                <div class="flex items-center justify-between font-mono text-xs sm:text-sm font-semibold text-white gap-2">
+                    <span id="res-first-host" class="truncate">192.168.1.1</span>
+                    <span class="text-slate-500 shrink-0">to</span>
+                    <span id="res-last-host" class="truncate">192.168.1.254</span>
+                </div>
+                <div class="flex justify-end mt-2">
+                    <button class="copy-btn text-xs text-indigo-400 hover:underline flex items-center gap-1" data-copy-target="res-usable-range-combined">
+                        <i class="fa-regular fa-copy"></i> Copy Range
+                    </button>
+                    <span id="res-usable-range-combined" class="hidden"></span>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-5 border-l-4 border-blue-500">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Usable Hosts</span>
+                    <i class="fa-solid fa-desktop text-blue-400"></i>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                    <span id="res-usable-hosts-count" class="text-xl font-bold font-mono text-white">254</span>
+                    <span id="res-total-hosts-count" class="text-xs text-slate-400 font-mono">Total: 256</span>
+                </div>
+                <p id="res-hosts-formula" class="text-xs text-blue-400/80 font-mono mt-1">2^(32-24) - 2</p>
+            </div>
+        </section>
+
+        <div class="glass-panel rounded-2xl p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+            <div>
+                <span class="text-slate-400 block mb-1">Subnet Mask</span>
+                <span id="res-subnet-mask" class="font-bold text-white text-sm break-all">255.255.255.0</span>
+            </div>
+            <div>
+                <span class="text-slate-400 block mb-1">Wildcard Mask</span>
+                <span id="res-wildcard-mask" class="font-bold text-white text-sm break-all">0.0.0.255</span>
+            </div>
+            <div>
+                <span class="text-slate-400 block mb-1">IP Class & Type</span>
+                <span id="res-ip-type-tag" class="inline-flex px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 font-semibold border border-indigo-800/40">Class C (Private)</span>
+            </div>
+            <div>
+                <span class="text-slate-400 block mb-1">Short Notation</span>
+                <span id="res-short-notation" class="font-bold text-emerald-400 text-sm break-all">192.168.1.1/24</span>
+            </div>
+        </div>
+
+        <!-- SECTION 4: BIT BREAKDOWN + SPLIT -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 glass-panel rounded-2xl p-6 space-y-6 overflow-hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <i class="fa-solid fa-microchip text-indigo-400"></i> Bit-Level 32-Bit Breakdown
+                    </h3>
+                    <div class="flex items-center gap-4 text-xs">
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span> Network (<span id="net-bit-count">24</span>)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-blue-500 inline-block"></span> Host (<span id="host-bit-count">8</span>)</span>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <div id="bit-bar-container" class="bit-grid bg-slate-900/90 p-3 rounded-xl border border-slate-800"></div>
+                    <p class="text-xs text-slate-400 flex justify-between px-1">
+                        <span>Bit 31 (MSB)</span>
+                        <span class="text-slate-500 hidden sm:inline">Click any bit to set the prefix</span>
+                        <span>Bit 0 (LSB)</span>
+                    </p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse font-mono text-xs min-w-[500px]">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400">
+                                <th class="py-2 px-3">Field</th>
+                                <th class="py-2 px-3">Decimal</th>
+                                <th class="py-2 px-3">Binary (32-bit)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/50">
+                            <tr>
+                                <td class="py-2.5 px-3 font-semibold text-slate-300">IP Address</td>
+                                <td id="bin-ip-dec" class="py-2.5 px-3 text-white">192.168.1.1</td>
+                                <td id="bin-ip-formatted" class="py-2.5 px-3 break-all"></td>
+                            </tr>
+                            <tr>
+                                <td class="py-2.5 px-3 font-semibold text-slate-300">Subnet Mask</td>
+                                <td id="bin-mask-dec" class="py-2.5 px-3 text-white">255.255.255.0</td>
+                                <td id="bin-mask-formatted" class="py-2.5 px-3 break-all"></td>
+                            </tr>
+                            <tr class="bg-emerald-950/20">
+                                <td class="py-2.5 px-3 font-semibold text-emerald-400">Network Address</td>
+                                <td id="bin-net-dec" class="py-2.5 px-3 text-emerald-400 font-bold">192.168.1.0</td>
+                                <td id="bin-net-formatted" class="py-2.5 px-3 break-all"></td>
+                            </tr>
+                            <tr class="bg-amber-950/20">
+                                <td class="py-2.5 px-3 font-semibold text-amber-400">Broadcast Address</td>
+                                <td id="bin-bcast-dec" class="py-2.5 px-3 text-amber-400 font-bold">192.168.1.255</td>
+                                <td id="bin-bcast-formatted" class="py-2.5 px-3 break-all"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-6 space-y-5">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-chart-pie text-indigo-400"></i> Address Space Split
+                </h3>
+                <p class="text-xs text-slate-400">
+                    Current subnet <span id="visual-subnet-tag" class="text-indigo-400 font-mono font-bold">/24</span> inside parent <span id="visual-parent-tag" class="text-emerald-400 font-mono font-bold">/16</span>.
+                </p>
+                <div class="bg-slate-900/90 rounded-xl p-4 border border-slate-800 space-y-3">
+                    <div class="flex justify-between gap-2 text-xs text-slate-400 font-mono">
+                        <span class="truncate">Parent: <strong id="parent-block-name" class="text-slate-200">192.168.0.0/16</strong></span>
+                        <span id="parent-total-subnets" class="text-indigo-400 shrink-0">256 Subnets</span>
+                    </div>
+                    <div class="bg-slate-950 rounded-lg p-2 border border-slate-800">
+                        <div id="subnets-mini-grid" class="grid grid-cols-4 sm:grid-cols-8 gap-1.5 max-h-60 overflow-y-auto p-1"></div>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-400">Space occupied:</span>
+                            <span id="space-percentage" class="text-indigo-400 font-bold">0.39%</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div id="space-bar-fill" class="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-500" style="width: 25%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-800/80 space-y-2 text-xs">
+                    <div class="font-semibold text-slate-300 mb-1">Subnet Topology</div>
+                    <div class="flex justify-between text-slate-400"><span>Subnet size:</span><span id="topo-size" class="font-mono text-slate-200">256</span></div>
+                    <div class="flex justify-between text-slate-400"><span>Reserved addresses:</span><span class="font-mono text-slate-200">2</span></div>
+                    <div class="flex justify-between text-slate-400"><span>Suggested gateway:</span><span id="topo-gateway" class="font-mono text-emerald-400">192.168.1.1</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 5: SUBNET TABLE -->
+        <section class="glass-panel rounded-2xl p-6 space-y-5">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <i class="fa-solid fa-list-ol text-indigo-400"></i> Subnet Block Explorer
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-1">
+                        Dividing <span id="explorer-parent-title" class="font-mono font-bold text-slate-200">192.168.0.0/16</span> into <span id="explorer-prefix-title" class="font-mono font-bold text-indigo-400">/24</span> blocks.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 no-print">
+                    <input type="text" id="subnet-search-input" placeholder="Search IP or #..." class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                    <button id="btn-prev-page" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition">
+                        <i class="fa-solid fa-chevron-left text-xs"></i>
+                    </button>
+                    <span id="page-indicator" class="text-xs font-mono text-slate-400">Page 1 / 1</span>
+                    <button id="btn-next-page" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition">
+                        <i class="fa-solid fa-chevron-right text-xs"></i>
+                    </button>
+                    <button id="export-csv-btn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-csv text-emerald-400"></i> CSV
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-800 rounded-xl">
+                <table class="w-full text-left border-collapse font-mono text-xs min-w-[640px]">
+                    <thead class="bg-slate-900/90 text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+                        <tr>
+                            <th class="py-3 px-4">#</th>
+                            <th class="py-3 px-4">Network ID</th>
+                            <th class="py-3 px-4">Usable Range</th>
+                            <th class="py-3 px-4">Broadcast</th>
+                            <th class="py-3 px-4">Usable Hosts</th>
+                            <th class="py-3 px-4 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subnets-table-body" class="divide-y divide-slate-800/60 bg-slate-950/40"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- SECTION 6: MATH + CHEAT SHEET -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="glass-panel rounded-2xl p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-graduation-cap text-indigo-400"></i> How This Was Calculated
+                </h3>
+                <div class="space-y-3 text-xs">
+                    <div class="bg-slate-900/80 rounded-xl p-4 border border-slate-800 space-y-2">
+                        <div class="font-bold text-indigo-400">Step 1: Network Address (AND)</div>
+                        <p class="text-slate-400">IP AND mask keeps only the bits where both are 1.</p>
+                        <div class="font-mono text-slate-300 bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                            <div class="flex justify-between gap-2"><span class="text-slate-500">IP:</span><span id="math-step1-ip"></span></div>
+                            <div class="flex justify-between gap-2"><span class="text-slate-500">MASK:</span><span id="math-step1-mask"></span></div>
+                            <div class="border-t border-slate-800 pt-1 flex justify-between gap-2 font-bold text-emerald-400"><span>NET ID:</span><span id="math-step1-res"></span></div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900/80 rounded-xl p-4 border border-slate-800 space-y-2">
+                        <div class="font-bold text-amber-400">Step 2: Broadcast Address (OR)</div>
+                        <p class="text-slate-400">Network ID OR wildcard turns every host bit to 1.</p>
+                        <div class="font-mono text-slate-300 bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                            <div class="flex justify-between gap-2"><span class="text-slate-500">NET ID:</span><span id="math-step2-net"></span></div>
+                            <div class="flex justify-between gap-2"><span class="text-slate-500">WILDCARD:</span><span id="math-step2-wild"></span></div>
+                            <div class="border-t border-slate-800 pt-1 flex justify-between gap-2 font-bold text-amber-400"><span>BCAST:</span><span id="math-step2-res"></span></div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900/80 rounded-xl p-4 border border-slate-800 space-y-2">
+                        <div class="font-bold text-blue-400">Step 3: Host Capacity</div>
+                        <div class="font-mono text-slate-300 bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                            <div>Total = 2^(32 - CIDR) = <span id="math-step3-total" class="text-white font-bold"></span></div>
+                            <div>Usable = Total - 2 = <span id="math-step3-usable" class="text-blue-400 font-bold"></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-6 space-y-4">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-book-open text-indigo-400"></i> CIDR Quick Reference
+                </h3>
+                <div class="overflow-x-auto border border-slate-800 rounded-xl">
+                    <table class="w-full text-left font-mono text-xs">
+                        <thead class="bg-slate-900/90 text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="py-2.5 px-3">CIDR</th>
+                                <th class="py-2.5 px-3">Subnet Mask</th>
+                                <th class="py-2.5 px-3">Usable Hosts</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 bg-slate-950/40 text-slate-300">
+                            <tr><td class="py-2 px-3 font-bold text-indigo-400">/32</td><td class="py-2 px-3">255.255.255.255</td><td class="py-2 px-3">1</td></tr>
+                            <tr><td class="py-2 px-3 font-bold text-indigo-400">/30</td><td class="py-2 px-3">255.255.255.252</td><td class="py-2 px-3">2</td></tr>
+                            <tr><td class="py-2 px-3 font-bold text-indigo-400">/29</td><td class="py-2 px-3">255.255.255.248</td><td class="py-2 px-3">6</td></tr>
+                            <tr class="bg-indigo-950/30"><td class="py-2 px-3 font-bold text-emerald-400">/24</td><td class="py-2 px-3">255.255.255.0</td><td class="py-2 px-3 text-emerald-400 font-bold">254</td></tr>
+                            <tr><td class="py-2 px-3 font-bold text-indigo-400">/16</td><td class="py-2 px-3">255.255.0.0</td><td class="py-2 px-3">65,534</td></tr>
+                            <tr><td class="py-2 px-3 font-bold text-indigo-400">/8</td><td class="py-2 px-3">255.0.0.0</td><td class="py-2 px-3">16,777,214</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="border-t border-slate-800/80 py-6 text-center text-xs text-slate-500 w-full mt-auto">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <span>IPv4 Subnet Visualizer</span>
+            <span>RFC 1918 private ranges highlighted</span>
+        </div>
+    </footer>
+
+<script>
+(function () {
+    const state = { ipInt: 0xC0A80101, cidr: 24, currentPage: 1, pageSize: 10, searchQuery: '' };
+
+    const $ = (id) => document.getElementById(id);
+    const el = {
+        ipInput: $('ip-input'), cidrSelect: $('cidr-select'), hostsInput: $('hosts-input'),
+        subnetsNeededInput: $('subnets-needed-input'), cidrSlider: $('cidr-slider'),
+        sliderLabel: $('slider-cidr-label'), ipMsg: $('ip-validation-msg'),
+        resNet: $('res-network-ip'), resNetCidr: $('res-network-cidr'), resBcast: $('res-broadcast-ip'),
+        resFirst: $('res-first-host'), resLast: $('res-last-host'), resRangeCombined: $('res-usable-range-combined'),
+        resUsable: $('res-usable-hosts-count'), resTotal: $('res-total-hosts-count'), resFormula: $('res-hosts-formula'),
+        resMask: $('res-subnet-mask'), resWildcard: $('res-wildcard-mask'), resTypeTag: $('res-ip-type-tag'),
+        resShort: $('res-short-notation'),
+        bitBar: $('bit-bar-container'), netCount: $('net-bit-count'), hostCount: $('host-bit-count'),
+        binIpDec: $('bin-ip-dec'), binIpFmt: $('bin-ip-formatted'), binMaskDec: $('bin-mask-dec'),
+        binMaskFmt: $('bin-mask-formatted'), binNetDec: $('bin-net-dec'), binNetFmt: $('bin-net-formatted'),
+        binBcastDec: $('bin-bcast-dec'), binBcastFmt: $('bin-bcast-formatted'),
+        visSubnet: $('visual-subnet-tag'), visParent: $('visual-parent-tag'), parentName: $('parent-block-name'),
+        parentTotal: $('parent-total-subnets'), miniGrid: $('subnets-mini-grid'), spacePct: $('space-percentage'),
+        spaceFill: $('space-bar-fill'), topoSize: $('topo-size'), topoGateway: $('topo-gateway'),
+        explorerParent: $('explorer-parent-title'), explorerPrefix: $('explorer-prefix-title'),
+        tableBody: $('subnets-table-body'), searchInput: $('subnet-search-input'),
+        prevBtn: $('btn-prev-page'), nextBtn: $('btn-next-page'), pageInd: $('page-indicator'),
+        m1Ip: $('math-step1-ip'), m1Mask: $('math-step1-mask'), m1Res: $('math-step1-res'),
+        m2Net: $('math-step2-net'), m2Wild: $('math-step2-wild'), m2Res: $('math-step2-res'),
+        m3Total: $('math-step3-total'), m3Usable: $('math-step3-usable'),
+        toast: $('toast'), toastMsg: $('toast-message'), fsBtn: $('fullscreen-toggle'), fsIcon: $('fullscreen-icon'),
+        exportJson: $('export-json-btn'), exportCsv: $('export-csv-btn'),
+        classStrip: $('class-strip'), classExplain: $('class-explain'), classStatus: $('class-live-status')
+    };
+
+    const ipToInt = (s) => s.split('.').reduce((a, o) => ((a << 8) + parseInt(o, 10)) >>> 0, 0);
+    const intToIp = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+    const cidrToMask = (c) => c === 0 ? 0 : (0xFFFFFFFF << (32 - c)) >>> 0;
+    const toBin = (n) => (n >>> 0).toString(2).padStart(32, '0');
+    const fmt = (n) => n.toLocaleString();
+
+    const OCTET_RE = '(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])';
+    const IP_RE = new RegExp('^' + OCTET_RE + '\\.' + OCTET_RE + '\\.' + OCTET_RE + '\\.' + OCTET_RE + '$');
+    const isValidIp = (s) => IP_RE.test(s.trim());
+
+    // Parent block: the bigger block a subnet sits inside, used for the explorer
+    function parentPrefixOf(c) {
+        if (c >= 24) return 24;
+        if (c >= 16) return 16;
+        if (c >= 8) return 8;
+        return c;
+    }
+
+    const CLASSES = [
+        { id: 'A', range: '0 – 127', first: [0, 127], mask: '/8', maskTxt: '255.0.0.0', use: 'Very large networks (big companies, cloud providers).', color: '#34d399' },
+        { id: 'B', range: '128 – 191', first: [128, 191], mask: '/16', maskTxt: '255.255.0.0', use: 'Medium networks such as universities and large campuses.', color: '#60a5fa' },
+        { id: 'C', range: '192 – 223', first: [192, 223], mask: '/24', maskTxt: '255.255.255.0', use: 'Small networks such as home and office LANs.', color: '#fbbf24' },
+        { id: 'D', range: '224 – 239', first: [224, 239], mask: 'None', maskTxt: 'Not for hosts', use: 'Multicast: one message sent to a group of receivers.', color: '#f472b6' },
+        { id: 'E', range: '240 – 255', first: [240, 255], mask: 'None', maskTxt: 'Not for hosts', use: 'Reserved for future or experimental use.', color: '#94a3b8' }
+    ];
+
+    function classOf(firstOctet) {
+        return CLASSES.find(c => firstOctet >= c.first[0] && firstOctet <= c.first[1]);
+    }
+
+    function buildClassStrip() {
+        el.classStrip.innerHTML = CLASSES.map(c => `
+            <div id="class-card-${c.id}" class="class-card glass-panel rounded-xl p-4 border-2 border-transparent">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-2xl font-extrabold" style="color:${c.color}">Class ${c.id}</span>
+                    <span class="class-badge hidden text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white text-slate-900">You are here</span>
+                </div>
+                <div class="font-mono text-xs text-slate-300">First octet: <span class="text-white">${c.range}</span></div>
+                <div class="font-mono text-xs text-slate-300 mt-1">Default mask: <span class="text-white">${c.mask}</span></div>
+                <p class="text-xs text-slate-400 mt-2">${c.use}</p>
+            </div>`).join('');
+    }
+
+    function renderClassFinder() {
+        const first = (state.ipInt >>> 24) & 255;
+        const cls = classOf(first);
+        CLASSES.forEach(c => {
+            const card = $('class-card-' + c.id);
+            const active = c.id === cls.id;
+            card.classList.toggle('active', active);
+            card.style.borderColor = active ? c.color : 'transparent';
+            card.style.boxShadow = active ? `0 0 22px ${c.color}55` : 'none';
+            card.querySelector('.class-badge').classList.toggle('hidden', !active);
+        });
+
+        const ip = intToIp(state.ipInt);
+        const extra = cls.id === 'A' || cls.id === 'B' || cls.id === 'C'
+            ? `Its default mask is ${cls.mask}, but CIDR lets you change that.`
+            : `Classes D and E are not used for normal devices.`;
+        el.classExplain.innerHTML = `<b class="font-mono text-white">${ip}</b> starts with <b class="font-mono text-white">${first}</b>, which falls in <b style="color:${cls.color}">Class ${cls.id}</b>. ${extra}`;
+        el.classStatus.textContent = `Live: Class ${cls.id}`;
+    }
+
+    function initCidrDropdown() {
+        el.cidrSelect.innerHTML = '';
+        for (let i = 0; i <= 32; i++) {
+            const hosts = i === 32 ? 1 : i === 31 ? 2 : Math.pow(2, 32 - i) - 2;
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `/${i}  ${intToIp(cidrToMask(i))}  (${fmt(hosts)} hosts)`;
+            el.cidrSelect.appendChild(opt);
+        }
+    }
+
+    function formatBinary(bin, cidr) {
+        let out = [];
+        for (let i = 0; i < 32; i += 8) {
+            let oct = '';
+            for (let j = i; j < i + 8; j++) {
+                oct += j < cidr
+                    ? `<span class="text-emerald-400 font-bold">${bin[j]}</span>`
+                    : `<span class="text-blue-400">${bin[j]}</span>`;
+            }
+            out.push(oct);
+        }
+        return out.join('<span class="text-slate-600">.</span>');
+    }
+
+    function render32Bar() {
+        el.bitBar.innerHTML = '';
+        el.netCount.textContent = state.cidr;
+        el.hostCount.textContent = 32 - state.cidr;
+        const bin = toBin(state.ipInt);
+        for (let i = 0; i < 32; i++) {
+            const isNet = i < state.cidr;
+            const b = document.createElement('button');
+            b.className = `bit-box flex flex-col items-center justify-center rounded-md border font-mono ${
+                isNet ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/80'
+                      : 'bg-blue-950/60 border-blue-500/50 text-blue-300 hover:bg-blue-900/80'}`;
+            b.title = `Bit ${31 - i}. Click to set prefix to /${i + 1}`;
+            b.innerHTML = `<span class="text-[9px] text-slate-500 leading-none">${31 - i}</span><span class="font-bold text-xs mt-0.5">${bin[i]}</span>`;
+            b.addEventListener('click', () => { state.cidr = i + 1; update(); });
+            el.bitBar.appendChild(b);
+        }
+    }
+
+    function renderBinaryTable(net, bcast, mask) {
+        el.binIpDec.textContent = intToIp(state.ipInt);
+        el.binIpFmt.innerHTML = formatBinary(toBin(state.ipInt), state.cidr);
+        el.binMaskDec.textContent = intToIp(mask);
+        el.binMaskFmt.innerHTML = formatBinary(toBin(mask), state.cidr);
+        el.binNetDec.textContent = intToIp(net);
+        el.binNetFmt.innerHTML = formatBinary(toBin(net), state.cidr);
+        el.binBcastDec.textContent = intToIp(bcast);
+        el.binBcastFmt.innerHTML = formatBinary(toBin(bcast), state.cidr);
+    }
+
+    function renderSpaceMap(net) {
+        const parent = parentPrefixOf(state.cidr);
+        const parentNet = (net & cidrToMask(parent)) >>> 0;
+        const count = Math.pow(2, state.cidr - parent);
+        const size = Math.pow(2, 32 - state.cidr);
+        const idx = Math.floor((net - parentNet) / size);
+        const shown = Math.min(count, 32);
+
+        el.visSubnet.textContent = `/${state.cidr}`;
+        el.visParent.textContent = `/${parent}`;
+        el.parentName.textContent = `${intToIp(parentNet)}/${parent}`;
+        el.parentTotal.textContent = `${fmt(count)} Subnets`;
+
+        const pct = (1 / count) * 100;
+        el.spacePct.textContent = pct < 0.01 ? '< 0.01%' : pct.toFixed(2) + '%';
+        el.spaceFill.style.width = Math.max(pct, 2) + '%';
+
+        el.miniGrid.innerHTML = '';
+        for (let i = 0; i < shown; i++) {
+            const d = document.createElement('div');
+            const cur = i === (idx % shown);
+            d.className = `h-6 rounded flex items-center justify-center text-[10px] font-mono border ${
+                cur ? 'bg-indigo-600 border-indigo-400 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-500'}`;
+            d.textContent = `#${i + 1}`;
+            el.miniGrid.appendChild(d);
+        }
+
+        el.topoSize.textContent = fmt(size);
+        el.topoGateway.textContent = intToIp((net + 1) >>> 0);
+    }
+
+    function renderMath(net, bcast, mask, wild) {
+        el.m1Ip.textContent = intToIp(state.ipInt);
+        el.m1Mask.textContent = intToIp(mask);
+        el.m1Res.textContent = intToIp(net);
+        el.m2Net.textContent = intToIp(net);
+        el.m2Wild.textContent = intToIp(wild);
+        el.m2Res.textContent = intToIp(bcast);
+        const total = Math.pow(2, 32 - state.cidr);
+        el.m3Total.textContent = fmt(total);
+        el.m3Usable.textContent = fmt(Math.max(total - 2, 0));
+    }
+
+    function renderTable() {
+        const parent = parentPrefixOf(state.cidr);
+        const parentNet = (state.ipInt & cidrToMask(parent)) >>> 0;
+        el.explorerParent.textContent = `${intToIp(parentNet)}/${parent}`;
+        el.explorerPrefix.textContent = `/${state.cidr}`;
+
+        const total = Math.pow(2, state.cidr - parent);
+        const size = Math.pow(2, 32 - state.cidr);
+        const q = state.searchQuery.trim().toLowerCase();
+
+        const matches = [];
+        for (let i = 0; i < total; i++) {
+            const n = (parentNet + i * size) >>> 0;
+            if (!q || intToIp(n).includes(q) || String(i + 1) === q) matches.push(i);
+        }
+
+        const pages = Math.ceil(matches.length / state.pageSize) || 1;
+        if (state.currentPage > pages) state.currentPage = pages;
+        el.pageInd.textContent = `Page ${state.currentPage} / ${pages}`;
+        el.prevBtn.disabled = state.currentPage <= 1;
+        el.nextBtn.disabled = state.currentPage >= pages;
+
+        const start = (state.currentPage - 1) * state.pageSize;
+        const slice = matches.slice(start, start + state.pageSize);
+        el.tableBody.innerHTML = '';
+
+        if (!slice.length) {
+            el.tableBody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-500">No matching subnets</td></tr>`;
+            return;
+        }
+
+        slice.forEach(i => {
+            const n = (parentNet + i * size) >>> 0;
+            const b = (n + size - 1) >>> 0;
+            const selected = state.ipInt >= n && state.ipInt <= b;
+            const usable = Math.max(size - 2, 0);
+            const tr = document.createElement('tr');
+            tr.className = `hover:bg-slate-900/80 transition ${selected ? 'bg-indigo-950/40' : ''}`;
+            tr.innerHTML = `
+                <td class="py-2.5 px-4 font-semibold ${selected ? 'text-indigo-400' : 'text-slate-500'}">#${i + 1}</td>
+                <td class="py-2.5 px-4 font-bold ${selected ? 'text-indigo-300' : 'text-white'}">${intToIp(n)}/${state.cidr}</td>
+                <td class="py-2.5 px-4 text-slate-300">${intToIp(n + 1)} – ${intToIp(b - 1)}</td>
+                <td class="py-2.5 px-4 text-amber-400">${intToIp(b)}</td>
+                <td class="py-2.5 px-4 text-slate-400">${fmt(usable)}</td>
+                <td class="py-2.5 px-4 text-center">
+                    <button class="select-subnet-btn px-2.5 py-1 rounded bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 text-[11px] transition" data-ip="${intToIp(n)}">
+                        ${selected ? 'Selected' : 'Load IP'}
+                    </button>
+                </td>`;
+            el.tableBody.appendChild(tr);
+        });
+
+        el.tableBody.querySelectorAll('.select-subnet-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const ip = btn.dataset.ip;
+                el.ipInput.value = ip;
+                state.ipInt = ipToInt(ip);
+                update();
+                toast(`Loaded subnet ${ip}`);
+            });
+        });
+    }
+
+    function update() {
+        const mask = cidrToMask(state.cidr);
+        const wild = (~mask) >>> 0;
+        const net = (state.ipInt & mask) >>> 0;
+        const bcast = (net | wild) >>> 0;
+        const total = Math.pow(2, 32 - state.cidr);
+
+        let usable = total - 2, first = net + 1, last = bcast - 1;
+        if (state.cidr === 31) { usable = 2; first = net; last = bcast; }
+        if (state.cidr === 32) { usable = 1; first = net; last = net; }
+
+        el.ipInput.value = el.ipInput.value === document.activeElement?.value ? el.ipInput.value : intToIp(state.ipInt);
+        el.resNet.textContent = intToIp(net);
+        el.resNetCidr.textContent = `/${state.cidr} Subnet ID`;
+        el.resBcast.textContent = intToIp(bcast);
+        el.resFirst.textContent = intToIp(first);
+        el.resLast.textContent = intToIp(last);
+        el.resRangeCombined.textContent = `${intToIp(first)} - ${intToIp(last)}`;
+        el.resUsable.textContent = fmt(Math.max(usable, 0));
+        el.resTotal.textContent = `Total: ${fmt(total)}`;
+        el.resFormula.textContent = state.cidr >= 31 ? `2^(32-${state.cidr})` : `2^(32-${state.cidr}) - 2`;
+        el.resMask.textContent = intToIp(mask);
+        el.resWildcard.textContent = intToIp(wild);
+        el.resShort.textContent = `${intToIp(state.ipInt)}/${state.cidr}`;
+
+        const first8 = (state.ipInt >>> 24) & 255;
+        const cls = classOf(first8);
+        const second = (state.ipInt >>> 16) & 255;
+        let type = 'Public';
+        if (first8 === 10) type = 'Private';
+        else if (first8 === 172 && second >= 16 && second <= 31) type = 'Private';
+        else if (first8 === 192 && second === 168) type = 'Private';
+        else if (first8 === 127) type = 'Loopback';
+        el.resTypeTag.textContent = `Class ${cls.id} (${type})`;
+
+        el.cidrSelect.value = state.cidr;
+        el.cidrSlider.value = state.cidr;
+        el.sliderLabel.textContent = `/${state.cidr}`;
+
+        render32Bar();
+        renderBinaryTable(net, bcast, mask);
+        renderSpaceMap(net);
+        renderMath(net, bcast, mask, wild);
+        renderTable();
+        renderClassFinder();
+    }
+
+    function toast(msg) {
+        el.toastMsg.textContent = msg;
+        el.toast.classList.remove('translate-y-20', 'opacity-0');
+        el.toast.classList.add('translate-y-0', 'opacity-100');
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => {
+            el.toast.classList.remove('translate-y-0', 'opacity-100');
+            el.toast.classList.add('translate-y-20', 'opacity-0');
+        }, 2500);
+    }
+
+    function copyText(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+    }
+
+    function bindEvents() {
+        el.fsBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => toast('Fullscreen not available'));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+        document.addEventListener('fullscreenchange', () => {
+            el.fsIcon.className = document.fullscreenElement ? 'fa-solid fa-compress text-sm' : 'fa-solid fa-expand text-sm';
+        });
+
+        el.ipInput.addEventListener('input', (e) => {
+            const v = e.target.value.trim();
+            if (isValidIp(v)) {
+                state.ipInt = ipToInt(v);
+                el.ipMsg.textContent = 'Valid IP';
+                el.ipMsg.className = 'text-emerald-400';
+                update();
+            } else {
+                el.ipMsg.textContent = 'Invalid IPv4';
+                el.ipMsg.className = 'text-red-400';
+            }
+        });
+
+        el.cidrSelect.addEventListener('change', (e) => { state.cidr = +e.target.value; update(); });
+        el.cidrSlider.addEventListener('input', (e) => { state.cidr = +e.target.value; update(); });
+
+        el.hostsInput.addEventListener('input', (e) => {
+            const need = parseInt(e.target.value, 10);
+            if (!need || need <= 0) return;
+            for (let c = 32; c >= 0; c--) {
+                const usable = c >= 31 ? (c === 31 ? 2 : 1) : Math.pow(2, 32 - c) - 2;
+                if (usable >= need) { state.cidr = c; update(); break; }
+            }
+        });
+
+        el.subnetsNeededInput.addEventListener('input', (e) => {
+            const need = parseInt(e.target.value, 10);
+            if (!need || need <= 0) return;
+            const target = parentPrefixOf(state.cidr) + Math.ceil(Math.log2(need));
+            if (target <= 32) { state.cidr = target; update(); }
+        });
+
+        document.querySelectorAll('.preset-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const ip = chip.dataset.ip;
+                el.ipInput.value = ip;
+                state.ipInt = ipToInt(ip);
+                state.cidr = +chip.dataset.cidr;
+                update();
+                toast(`Loaded ${ip}/${state.cidr}`);
+            });
+        });
+
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = $(btn.dataset.copyTarget);
+                if (!target) return;
+                const txt = target.textContent.trim();
+                copyText(txt);
+                toast(`Copied: ${txt}`);
+            });
+        });
+
+        el.searchInput.addEventListener('input', (e) => {
+            state.searchQuery = e.target.value;
+            state.currentPage = 1;
+            renderTable();
+        });
+        el.prevBtn.addEventListener('click', () => { if (state.currentPage > 1) { state.currentPage--; renderTable(); } });
+        el.nextBtn.addEventListener('click', () => { state.currentPage++; renderTable(); });
+
+        el.exportJson.addEventListener('click', () => {
+            const data = {
+                ip: intToIp(state.ipInt), cidr: state.cidr,
+                networkAddress: el.resNet.textContent, broadcastAddress: el.resBcast.textContent,
+                firstHost: el.resFirst.textContent, lastHost: el.resLast.textContent,
+                usableHosts: el.resUsable.textContent, ipClass: el.resTypeTag.textContent
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'subnet.json';
+            a.click();
+        });
+
+        el.exportCsv.addEventListener('click', () => {
+            const rows = [['#', 'Network', 'Usable Range', 'Broadcast', 'Usable Hosts']];
+            el.tableBody.querySelectorAll('tr').forEach(tr => {
+                const cells = [...tr.querySelectorAll('td')].slice(0, 5).map(td => td.textContent.trim());
+                if (cells.length) rows.push(cells);
+            });
+            const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'subnets.csv';
+            a.click();
+        });
+
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(update, 120);
+        });
+    }
+
+    function init() {
+        initCidrDropdown();
+        buildClassStrip();
+        bindEvents();
+        el.ipInput.value = intToIp(state.ipInt);
+        update();
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
